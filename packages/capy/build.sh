@@ -6,6 +6,9 @@ set -ex
 # working directory. Build it from source rather than installing the prebuilt
 # npm artifact.
 
+# This package builds with tsc only; drop the binary/bundle tooling so the
+# sandbox doesn't fetch @yao-pkg/pkg or esbuild (neither is used here).
+npm pkg delete devDependencies.@yao-pkg/pkg devDependencies.esbuild
 npm install                  # no committed lockfile upstream -> install, not ci
 npm run build                # tsc -> dist/
 npm pkg delete bin.capy-dev  # match the published artifact (upstream prepublishOnly)
