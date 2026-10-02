@@ -1,19 +1,19 @@
-let { Attrs, BuildSpec, Local, Needs, OutputBin, OutputData, .. } = import "minimal.ncl" in
+let { subsetOf, Attrs, BuildSpec, Local, Needs, OutputBin, OutputData, .. } = import "minimal.ncl" in
 let base = import "../base/build.ncl" in
 let coreutils = import "../coreutils/build.ncl" in
-let node = import "../node/build.ncl" in
+let node-lts = import "../node-lts/build.ncl" in
 
-let version = "5.4.3" in
+let version = "5.8.0" in
 {
   name = "bash-language-server",
   build_deps = [
     { file = "build.sh" } | Local,
     base,
-    node,
+    node-lts,
   ],
   runtime_deps = [
     coreutils,
-    node,
+    subsetOf node-lts ["node"],
   ],
   needs =
     {
@@ -28,7 +28,7 @@ let version = "5.4.3" in
 
   outputs = {
     bash-language-server = { glob = "usr/bin/bash-language-server" } | OutputBin,
-    libexec = { glob = "usr/lib/node_modules/**" } | OutputData,
+    libexec = { glob = "usr/libexec/bash-language-server/**", allow_executable = true } | OutputData,
   },
 
   attrs =

@@ -11,14 +11,14 @@ let m4 = import "../m4/build.ncl" in
 let ncurses = import "../ncurses/build.ncl" in
 let glibc = import "../glibc/build.ncl" in
 
-let version = "3.5.1" in
+let version = "3.5.3" in
 {
   name = "htop",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "gs://minimal-staging-archives/htop-dev/htop/%{version}.tar.gz",
-      sha256 = "dfc4a09845e9bc86f466a722e62b8f87d59028ff39689077ff2257a6a605061d",
+      sha256 = "edf25ee020a5263ffbef9eef5a8c14392bf74e78b3d5c8bc64d9343dd9a82605",
       extract = true,
       strip_prefix = "htop-%{version}",
     } | Source,

@@ -1,6 +1,25 @@
 #!/bin/bash
 set -euo pipefail
 
+# cabal's bootstrap fetches ~20 tarballs from hackage.haskell.org live during
+# the build, and those downloads flake intermittently (truncated reads ->
+# http.client.IncompleteRead). cabal verifies each tarball's sha256, so a
+# partial download is re-fetched cleanly, which makes a retry safe. The
+# hermetic fix is to vendor the bootstrap sources offline (see packages/ghc,
+# which passes --bootstrap-sources) -- this retry is the cheap stopgap.
+retry() {
+    local -i attempt=1 max=4
+    until "$@"; do
+        if (( attempt >= max )); then
+            echo "retry: '$*' failed after $max attempts" >&2
+            return 1
+        fi
+        echo "retry: '$*' failed (attempt $attempt/$max) -- likely a transient hackage fetch; retrying in $(( attempt * 15 ))s" >&2
+        sleep $(( attempt * 15 ))
+        attempt+=1
+    done
+}
+
 # Patch monorepo .cabal files to accept GHC 9.10.1's built-in Cabal-syntax-3.12.0.0
 # (cabal-install-3.12.1.0 expects ^>=3.12.1.0 but GHC 9.10.1 ships 3.12.0.0)
 for cabal_file in \
@@ -14,11 +33,30 @@ for cabal_file in \
     fi
 done
 
-# Generate a bootstrap JSON that matches the actual GHC in the sandbox
-python3 update_bootstrap_json.py bootstrap/linux-9.8.2.json > bootstrap/linux-actual.json
+# Generate a bootstrap JSON that matches the actual GHC in the sandbox.
+#
+# The base plan is picked by cabal's OWN bootstrap/ directory, which ships a
+# fixed set of linux-<ghc>.json files per cabal release — it does NOT track the
+# GHC we build with. cabal 3.18.1.0 ships 9.6.7 / 9.8.4 / 9.10.3 / 9.12.4; the
+# 9.8.2 this used to name existed only in older cabals, so bumping cabal broke
+# it with a bare FileNotFoundError from our own script.
+#
+# Which one matters less than it looks: update_bootstrap_json.py REPLACES the
+# `builtin` list with the real `ghc-pkg list` output, so the compiler-package
+# half adapts to whatever GHC is on PATH. The base plan supplies the
+# `dependencies` (Hackage packages to build), so take the newest available.
+BOOTSTRAP_PLAN=bootstrap/linux-9.10.3.json
+[ -f "$BOOTSTRAP_PLAN" ] || {
+  echo "ERROR: $BOOTSTRAP_PLAN not found — cabal $(basename "$PWD") ships a different set of bootstrap plans." >&2
+  echo "Available:" >&2
+  ls bootstrap/linux-*.json >&2 || echo "  (none)" >&2
+  echo "Pick the newest and update BOOTSTRAP_PLAN in build.sh." >&2
+  exit 1
+}
+python3 update_bootstrap_json.py "$BOOTSTRAP_PLAN" > bootstrap/linux-actual.json
 
 # Run the bootstrap script with the generated JSON
-python3 bootstrap/bootstrap.py -w "$(command -v ghc)" -d bootstrap/linux-actual.json
+retry python3 bootstrap/bootstrap.py -w "$(command -v ghc)" -d bootstrap/linux-actual.json
 
 # The bootstrap script compiles cabal-install and installs to _build/bin
 mkdir -p "$OUTPUT_DIR"/usr/bin

@@ -12,14 +12,14 @@ let make = import "../make/build.ncl" in
 let linux_headers = import "../linux_headers/build.ncl" in
 let sed = import "../sed/build.ncl" in
 
-let version = "2.3.2" in
+let version = "2.4.0" in
 {
   name = "acl",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "gs://minimal-staging-archives/acl-%{version}.tar.xz",
-      sha256 = "97203a72cae99ab89a067fe2210c1cbf052bc492b479eca7d226d9830883b0bd",
+      sha256 = "e661131456d2708a01c614a0f400e11d7d1bfaeb6f3e74b75bb980b72f0161a3",
       extract = true,
       strip_prefix = "acl-%{version}",
     } | Source,
@@ -65,14 +65,22 @@ let version = "2.3.2" in
         match {
           { arch = 'Amd64, .. } =>
             {
-              url = "gs://minimal-staging-archives/prebuilts/acl/fabdc1c9d47abe563157959e4b80574790830ae3aa8de07faf25784aa95fca1c.tar.zst",
-              sha256 = "3212b09ce95cc87e50b39a8b94db032eb496752d3282a51b5db5e719bb4de20a",
+              # BEDROCK ROOT: this artifact is built by the hex0-rooted bootstrap ladder and
+              # replaces the previous prebuilt in this slot. Provenance, seals, and evidence:
+              # gominimal/minimermetic#16. Applied by minimermetic's
+              # bin/queue/update-bedrock-roots.py from its bedrock-roots-manifest.txt.
+              url = "gs://minimal-staging-archives/prebuilts/bedrock/sha256/ae9961c6cee91081c415ac924e34b5104fcb3160795183390cd46f4db93056b3/stage0-acl-amd-x86_64.tar.zst",
+              sha256 = "ae9961c6cee91081c415ac924e34b5104fcb3160795183390cd46f4db93056b3",
               extract = true,
             } | Source,
           { arch = 'Arm64, .. } =>
             {
-              url = "gs://minimal-staging-archives/prebuilts/acl/arm64-linux-gnu/acl_2.3.2_arm64-linux-gnu_prebuilt.tar.zst",
-              sha256 = "4821e5df0756369771d6674a42e9da1cc6fa5a19f2a32464dfcfb49a6d77e517",
+              # BEDROCK ROOT: this artifact is built by the hex0-rooted bootstrap ladder and
+              # replaces the previous prebuilt in this slot. Provenance, seals, and evidence:
+              # gominimal/minimermetic#16. Applied by minimermetic's
+              # bin/queue/update-bedrock-roots.py from its bedrock-roots-manifest.txt.
+              url = "gs://minimal-staging-archives/prebuilts/bedrock/sha256/4896093cd26660c5eb6bf69e4fbe37f3c7a66eec8f4cf5042cf477c9822588bb/stage0-acl-arm-aarch64.tar.zst",
+              sha256 = "4896093cd26660c5eb6bf69e4fbe37f3c7a66eec8f4cf5042cf477c9822588bb",
               extract = true,
             } | Source,
         } target,

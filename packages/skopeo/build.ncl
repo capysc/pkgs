@@ -7,14 +7,14 @@ let toolchain = import "../toolchain/build.ncl" in
 
 let glibc = import "../glibc/build.ncl" in
 
-let version = "1.22.0" in
+let version = "1.24.1" in
 {
   name = "skopeo",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "gs://minimal-staging-archives/containers/skopeo/v%{version}.tar.gz",
-      sha256 = "dc9aa749973b10d3c2672d2839e61bac75cf32d5e5106463420b83653c9df3ff",
+      sha256 = "6a3f342a327ec7684198eb0e15114940b6101506db48d9a96590f5942cb3b335",
       extract = true,
       strip_prefix = "skopeo-%{version}",
     } | Source,
@@ -34,7 +34,9 @@ let version = "1.22.0" in
   outputs = {
     skopeo = { glob = "usr/bin/skopeo" } | OutputBin,
 
-    completions = { glob = "usr/share/bash-completion/completions/*" } | OutputData,
+    bash_completion = { glob = "usr/share/bash-completion/completions/skopeo" } | OutputData,
+    fish_completion = { glob = "usr/share/fish/vendor_completions.d/skopeo.fish" } | OutputData,
+    zsh_completion = { glob = "usr/share/zsh/site-functions/_skopeo" } | OutputData,
   },
   attrs =
     {

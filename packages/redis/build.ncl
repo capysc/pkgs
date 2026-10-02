@@ -1,6 +1,7 @@
 let { subsetOf, Attrs, BuildSpec, Local, OutputBin, Source, .. } = import "minimal.ncl" in
 let bash = import "../bash/build.ncl" in
 let coreutils = import "../coreutils/build.ncl" in
+let gawk = import "../gawk/build.ncl" in
 let grep = import "../grep/build.ncl" in
 let make = import "../make/build.ncl" in
 let sed = import "../sed/build.ncl" in
@@ -10,19 +11,20 @@ let linux_headers = import "../linux_headers/build.ncl" in
 
 let glibc = import "../glibc/build.ncl" in
 
-let version = "8.6.4" in
+let version = "8.10.2" in
 {
   name = "redis",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "gs://minimal-staging-archives/redis/redis/%{version}.tar.gz",
-      sha256 = "a2029c96311ab1ec2ae489076ae900b6497b3beaa7dc379de26b5df48f696f6c",
+      sha256 = "541a374b753a8405683dd88560465791acc98cf09445ef10ec1bd286904273e8",
       extract = true,
       strip_prefix = "redis-%{version}",
     } | Source,
     bash,
     coreutils,
+    gawk,
     grep,
     sed,
     make,

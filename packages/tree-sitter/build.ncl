@@ -5,14 +5,21 @@ let glibc = import "../glibc/build.ncl" in
 let make = import "../make/build.ncl" in
 let toolchain = import "../toolchain/build.ncl" in
 
-let version = "0.24.7" in
+# Pinned to 0.25.x: tree-sitter 0.26 REMOVED `ts_language_version` (renamed to
+# `ts_language_abi_version`), which Emacs 30.2's src/treesit.c still calls — so
+# a 0.26 bump makes emacs (a reverse-dep in the rebuild closure) FTBFS with
+# "implicit declaration of function 'ts_language_version'". The Emacs fix is on
+# master (debbugs.gnu.org #79627) but NOT in a release yet, and it makes Emacs
+# require tree-sitter >= 0.25. Bump to 0.26 only TOGETHER with an Emacs release
+# that ships the #79627 fix (coordinated reverse-dep upgrade).
+let version = "0.27.0" in
 {
   name = "tree-sitter",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "https://github.com/tree-sitter/tree-sitter/archive/refs/tags/v%{version}.tar.gz",
-      sha256 = "7cbc13c974d6abe978cafc9da12d1e79e07e365c42af75e43ec1b5cdc03ed447",
+      sha256 = "d35c96e68736bd9569d2757c3cc71052485f33082c3825f1aed9d0e86013a159",
       extract = true,
       strip_prefix = "tree-sitter-%{version}",
     } | Source,

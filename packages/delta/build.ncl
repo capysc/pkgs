@@ -10,14 +10,14 @@ let diffutils = import "../diffutils/build.ncl" in
 let oniguruma = import "../oniguruma/build.ncl" in
 let zlib = import "../zlib/build.ncl" in
 
-let version = "0.18.2" in
+let version = "0.19.2" in
 {
   name = "delta",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "gs://minimal-staging-archives/dandavison/delta/%{version}.tar.gz",
-      sha256 = "64717c3b3335b44a252b8e99713e080cbf7944308b96252bc175317b10004f02",
+      sha256 = "f59b86f8c8dda4d76a3ba34b8553777a20c3b461646917d8e480fac6531bba9f",
       extract = true,
       strip_prefix = "delta-%{version}",
     } | Source,
@@ -39,7 +39,9 @@ let version = "0.18.2" in
 
   outputs = {
     delta = { glob = "usr/bin/delta" } | OutputBin,
-    completions = { glob = "usr/share/bash-completion/completions/*" } | OutputData,
+    bash_completion = { glob = "usr/share/bash-completion/completions/delta" } | OutputData,
+    fish_completion = { glob = "usr/share/fish/vendor_completions.d/delta.fish" } | OutputData,
+    zsh_completion = { glob = "usr/share/zsh/site-functions/_delta" } | OutputData,
   },
   attrs =
     {

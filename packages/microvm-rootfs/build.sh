@@ -1,100 +1,218 @@
 #!/bin/bash
-# Assemble a libkrun microVM guest rootfs as a read-only ext4 image.
+# Assemble a libkrun microVM guest userland as a read-only ext4 image.
 #
-# The build sandbox hardlinks this package's runtime closure (base + socat +
-# their libs) and its build-only deps (e2fsprogs, for mke2fs) into the sandbox
-# root at standard paths. We snapshot the userland into a staging tree, drop the
-# build-only e2fsprogs files, add a small bring-up init, prune bulk, and pack an
-# ext4 image with mke2fs. The image is loaded as a virtio-blk block device (e.g.
-# root=/dev/vda); a block root has no overlaid init, so the kernel runs the init
-# below directly. devtmpfs auto-mounts /dev, giving the init /dev/vsock.
+# Everything in the image comes from the pinned upstream Alpine artifacts
+# build.ncl fetches into this directory: the minirootfs tarball (musl libc +
+# busybox + baselayout) unpacked as the base, overlaid with the sha256-pinned
+# closure of .apk files for the tools busybox does not cover. This build no
+# longer snapshots the sandbox root, so none of this repo's packages — and no
+# glibc — reach the image.
+#
+# The image is packed with mke2fs from the e2fsprogs *build* dep (on PATH) and
+# loaded as a virtio-blk block device (/dev/vda); the guest minimald ships as
+# the initramfs pid-1, mounts this image and chroots into it, so the image
+# itself carries no init and no minimald. e2fsprogs (mkfs.ext4) and fstrim ship
+# in the image so the guest can format and reclaim the per-VM writable volume
+# (/dev/vdb) mounted at /var/lib/minimal.
 set -euo pipefail
 
 STAGE="$(pwd)/stage"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
-# Snapshot the runtime userland composed into this build sandbox.
-for d in usr bin sbin lib lib64 etc; do
-  if [ -e "/$d" ]; then
-    cp -a "/$d" "$STAGE/"
-  fi
-done
-
-# e2fsprogs is a build-only dependency: it provides mke2fs to pack the image
-# below (invoked from the build sandbox PATH, not from $STAGE), but the guest
-# never needs it at runtime. Drop its staged files so the runtime image carries
-# only the runtime closure. Done before the init is created, so nothing we ship
-# is at risk. The symlink guard skips a usr-merged /usr/sbin.
-if [ -d "$STAGE/usr/sbin" ] && [ ! -L "$STAGE/usr/sbin" ]; then
-  rm -rf "$STAGE/usr/sbin"
+# Base userland. The minirootfs tarball is a complete rootfs with no top-level
+# directory, so it unpacks straight into the staging root. Its own paths carry
+# the modes the image needs (/tmp 1777, /root 0700).
+shopt -s nullglob
+minirootfs=(alpine-minirootfs-*.tar.gz)
+if [ "${#minirootfs[@]}" -ne 1 ]; then
+  echo "ERROR: expected exactly 1 minirootfs tarball, found ${#minirootfs[@]}: ${minirootfs[*]}" >&2
+  exit 1
 fi
-rm -f "$STAGE"/usr/bin/chattr "$STAGE"/usr/bin/lsattr "$STAGE"/usr/bin/uuidgen \
-      "$STAGE"/usr/bin/compile_et "$STAGE"/usr/bin/mk_cmds
-# Note: `libss.so*` (not `libss*.so*`) — the latter also matches openssl's
-# libssl.so, which socat needs at runtime.
-rm -f "$STAGE"/usr/lib/libext2fs.so* "$STAGE"/usr/lib/libe2p.so* "$STAGE"/usr/lib/libss.so*
+tar -xzf "${minirootfs[0]}" -C "$STAGE"
 
-mkdir -p "$STAGE/bin" "$STAGE/sbin" "$STAGE/etc/microvm"
-
-# Kernel mountpoints. devtmpfs auto-mounts on /dev at boot (CONFIG_DEVTMPFS_MOUNT)
-# — without the directory it fails with "devtmpfs: error mounting -2" and the
-# guest has no /dev/vsock node. /proc and /sys are conventional mountpoints.
-mkdir -p "$STAGE/dev" "$STAGE/proc" "$STAGE/sys" "$STAGE/run" "$STAGE/tmp"
-chmod 1777 "$STAGE/tmp"
-
-# Guarantee /bin/sh for the init script's shebang.
-if [ ! -e "$STAGE/bin/sh" ]; then
-  if [ -e "$STAGE/bin/bash" ]; then
-    ln -sf bash "$STAGE/bin/sh"
-  elif [ -e "$STAGE/usr/bin/bash" ]; then
-    ln -sf ../usr/bin/bash "$STAGE/bin/sh"
-  fi
+# Overlay the pinned .apk closure. An .apk is a gzipped tar, so it is unpacked
+# with tar rather than apk — the guest root is read-only and nothing in the
+# closure has an install script to run (the busybox applet symlinks and the CA
+# bundle that do need one are already applied in the minirootfs). Unpack via a
+# scratch dir so apk's own metadata entries — dotfiles at the archive root
+# (.PKGINFO, .SIGN.*, .pre-/.post-install, .trigger) — can be dropped before
+# the payload is merged into the staging tree.
+#
+# The merge goes through tar rather than cp so that a destination entry is
+# replaced rather than written through: several of these packages ship a real
+# binary where the minirootfs has a busybox applet symlink (/sbin/ip and
+# /sbin/fstrim point at /bin/busybox), and copying onto the symlink would
+# follow it and overwrite busybox itself.
+#
+# --warning=no-unknown-keyword: apk records per-file checksums in a pax header
+# keyword tar does not know, and would otherwise warn about once per file.
+apks=(*.apk)
+if [ "${#apks[@]}" -eq 0 ]; then
+  echo "ERROR: no .apk sources in $(pwd)" >&2
+  exit 1
 fi
-
-# Bring-up init: signal readiness by connecting out to the host (vsock CID 2)
-# port 7350 and writing "READY\n", then serve an echo on vsock port 2222 for
-# host<->guest connectivity checks. Retry the marker briefly in case the vsock
-# device is not live the instant init starts.
-cat > "$STAGE/sbin/microvm-init" <<'INIT'
-#!/bin/sh
-i=0
-while [ "$i" -lt 50 ]; do
-    printf 'READY\n' | socat -t2 - VSOCK-CONNECT:2:7350 && break
-    i=$((i + 1))
-    sleep 0.1
-done
-# Fail loudly if the READY handshake never succeeded, rather than starting the
-# listener anyway and turning a boot failure into a downstream timeout.
-[ "$i" -lt 50 ] || {
-    echo "microvm-init: failed to publish READY on vsock 7350" >&2
+SCRATCH="$(pwd)/apk-payload"
+OVERLAID="$(pwd)/overlaid.txt"
+: > "$OVERLAID"
+for a in "${apks[@]}"; do
+  rm -rf "$SCRATCH"
+  mkdir -p "$SCRATCH"
+  tar --warning=no-unknown-keyword -xzf "$a" -C "$SCRATCH"
+  # Record name and version from the package's OWN metadata, before the
+  # dotfiles are pruned. Parsing the filename would not do: both a package name
+  # and an Alpine version contain hyphens ("libcom_err-1.47.4-r0",
+  # "ncurses-terminfo-base-6.6_p20260516-r0"), so the split point is ambiguous
+  # from the filename alone but explicit in .PKGINFO.
+  #
+  # FAIL CLOSED PER PACKAGE, not in aggregate. Skipping one unreadable .PKGINFO
+  # and checking only that the manifest ended up non-empty would let any other
+  # package satisfy the check while the skipped one bypassed reconciliation
+  # entirely — and if THAT one is an override, the db keeps its old version and
+  # the image misreports itself. "Some of the series applied" is the failure,
+  # so every package must yield a name and a version.
+  [ -f "$SCRATCH/.PKGINFO" ] || {
+    echo "ERROR: $a has no .PKGINFO — cannot tell what it installs" >&2
     exit 1
+  }
+  meta="$(awk -F' = ' '
+    $1 == "pkgname" { n = $2 }
+    $1 == "pkgver"  { v = $2 }
+    END { if (n != "" && v != "") print n " " v }
+  ' "$SCRATCH/.PKGINFO")"
+  [ -n "$meta" ] || {
+    echo "ERROR: $a has a .PKGINFO without both pkgname and pkgver" >&2
+    exit 1
+  }
+  printf '%s\n' "$meta" >> "$OVERLAID"
+  find "$SCRATCH" -mindepth 1 -maxdepth 1 -name '.*' -exec rm -rf {} +
+  tar -cf - -C "$SCRATCH" . | tar -xof - -C "$STAGE"
+done
+rm -rf "$SCRATCH"
+
+# Reconcile the apk database with what the overlay actually installed.
+#
+# Most of the closure ADDS packages the base layer never had; those stay
+# unrecorded, which is the long-standing behaviour (the minirootfs db lists 16
+# packages, the image ships ~49). But a security override REPLACES a package
+# the base layer does record — openssl is the first — and that leaves the
+# database contradicting the filesystem: patched libraries on disk, the old
+# vulnerable version still written in `installed`. Anything reading the db then
+# reports CVEs that are no longer present, indefinitely, and nothing
+# distinguishes that from a real finding.
+#
+# So rewrite `V:` for any overlaid package the base layer also recorded. The
+# stanza's per-file checksums stay the base layer's and are now stale; that is
+# acceptable here because the root mounts read-only and apk never runs a
+# verification pass inside the guest, whereas a stale `V:` actively misreports
+# the image's security state. The version is the field with consequences.
+DB="$STAGE/lib/apk/db/installed"
+# One manifest line per .apk, exactly. The loop above already fails on any
+# package it could not read, so a short manifest means something subtler went
+# wrong (a duplicate name collapsing, a write that did not land) — and the
+# consequence is the same either way: an override that is never reconciled, in
+# an image that builds clean and misreports itself.
+manifest_lines="$(wc -l < "$OVERLAID" | tr -d ' ')"
+if [ "$manifest_lines" -ne "${#apks[@]}" ]; then
+  echo "ERROR: read metadata for $manifest_lines of ${#apks[@]} .apk sources — refusing to reconcile a partial set" >&2
+  exit 1
+fi
+# -s, not -f: an EMPTY installed file passes -f, and then the rewrite emits an
+# empty database, every overlay reads back as an unrecorded addition, and the
+# verification loop below waves the build through. The stated contract is
+# missing-or-empty, so test for it.
+if [ ! -s "$DB" ]; then
+  echo "ERROR: apk database at lib/apk/db/installed is missing or empty — the minirootfs layout changed" >&2
+  exit 1
+fi
+awk -v pairfile="$OVERLAID" '
+  BEGIN {
+    while ((getline line < pairfile) > 0) {
+      split(line, f, " ")
+      if (f[1] != "") want[f[1]] = f[2]
+    }
+  }
+  /^P:/ { cur = substr($0, 3) }
+  /^V:/ && (cur in want) { print "V:" want[cur]; next }
+  { print }
+' "$DB" > "$DB.new"
+mv "$DB.new" "$DB"
+
+# FAIL CLOSED. A rewrite that silently does not land would ship an image
+# claiming a version it does not have — the same failure mode as a patch series
+# that applies short. Check every overlaid package the db records and refuse to
+# build an image that misdescribes itself.
+while read -r name ver; do
+  [ -n "$name" ] || continue
+  recorded="$(awk -v p="$name" '
+    $0 == "P:" p { found = 1; next }
+    found && /^V:/ { print substr($0, 3); exit }
+  ' "$DB")"
+  # Empty means the base layer never recorded it: an addition, not an override,
+  # and nothing to reconcile.
+  [ -n "$recorded" ] || continue
+  [ "$recorded" = "$ver" ] || {
+    echo "ERROR: apk db records $name $recorded but the overlay installed $ver" >&2
+    exit 1
+  }
+  echo "reconciled apk db: $name -> $ver (superseded the base layer)"
+done < "$OVERLAID"
+rm -f "$OVERLAID"
+
+# Per-VM writable volume mountpoint. The guest minimald mounts /dev/vdb here on
+# first boot (after formatting it with mkfs.ext4). The root image is mounted
+# read-only, so this directory cannot be created at runtime — it must ship in
+# the image or the mount fails with ENOENT/EROFS.
+mkdir -p "$STAGE/var/lib/minimal"
+
+# Resolver mountpoint. The guest minimald points DNS at the switch's server by
+# writing /run/resolv.conf and bind-mounting it over /etc/resolv.conf. A bind
+# only changes the mount tree, so it works on this read-only root — but only if
+# the target path already exists. The Alpine minirootfs ships no resolv.conf
+# (the old sandbox-snapshot image inherited one from the build root), so without
+# this the mount fails with ENOENT, the guest has no resolver at all, and
+# anything that resolves a name — the in-guest `pkgs` clone during session mint
+# — dies with "Could not resolve host". Empty on purpose: the contents are
+# written at runtime, this only reserves the path.
+: > "$STAGE/etc/resolv.conf"
+
+# bash's loadable builtins (~2.7 MB) are only reachable via `enable -f`, which
+# nothing in the guest uses. This is the one payload the .apk closure ships that
+# the guest does not need: Alpine splits headers, static libs, man pages and
+# docs into -dev/-doc subpackages that are not in the closure at all, so there
+# is nothing else to prune.
+rm -rf "$STAGE/usr/lib/bash"
+
+# Assert the guest tools landed where the boot contract expects them, so a
+# silently-empty .apk or an upstream path move fails here rather than at guest
+# boot. One entry per root package in build.ncl, plus busybox from the
+# minirootfs; the musl loader is checked separately below.
+for f in \
+  bin/busybox \
+  bin/bash \
+  bin/sh \
+  usr/bin/git \
+  sbin/ip \
+  sbin/mkfs.ext4 \
+  sbin/fstrim \
+  usr/bin/nsenter; do
+  # -L as well as -e: /bin/sh is an absolute symlink to /bin/busybox, which
+  # only resolves once the image is the root.
+  [ -e "$STAGE/$f" ] || [ -L "$STAGE/$f" ] || {
+    echo "ERROR: expected /$f in the staged rootfs" >&2
+    exit 1
+  }
+done
+# musl's loader is the only interpreter in the image; if it is missing, or a
+# glibc loader appears, the image is not what this package claims to build.
+compgen -G "$STAGE/lib/ld-musl-*.so.1" >/dev/null || {
+  echo "ERROR: no musl loader in the staged rootfs" >&2
+  exit 1
 }
-exec socat VSOCK-LISTEN:2222,fork EXEC:cat
-INIT
-chmod +x "$STAGE/sbin/microvm-init"
-
-# Machine-readable record of the bring-up contract.
-cat > "$STAGE/etc/microvm/manifest" <<'MANIFEST'
-# microvm guest rootfs contract
-# format=ext4-block-image
-# init=/sbin/microvm-init
-# vsock_port_ready=7350    guest CONNECTs out (host listen=false); writes "READY\n" once
-# vsock_port_echo=2222     guest LISTENs (host listen=true); echoes per connection
-# net=none
-MANIFEST
-
-# Prune build-time-only bulk the guest never needs: headers, static libs,
-# docs/man, and especially glibc's locale archive (the bulk of the closure).
-# The bring-up workload is sh + socat; the C locale fallback is sufficient.
-# `|| true` is scoped to `find` only — a failure in `cd` or `rm -rf` must still
-# fail the build (set -euo pipefail), while `find`'s noncritical errors are ok.
-( cd "$STAGE" && \
-  rm -rf usr/include usr/share/man usr/share/doc usr/share/info \
-         usr/share/locale usr/share/i18n usr/lib/locale usr/lib/pkgconfig \
-         usr/share/aclocal usr/share/gtk-doc usr/share/bash-completion \
-         usr/share/gdb && \
-  { find . \( -name '*.a' -o -name '*.la' -o -name '*.o' \) -delete 2>/dev/null || true; } )
+if [ -e "$STAGE/lib64" ] || compgen -G "$STAGE/lib/ld-linux*" >/dev/null; then
+  echo "ERROR: glibc loader in the staged rootfs — a glibc dep leaked in" >&2
+  exit 1
+fi
 
 # Fail loudly (not silently with an empty output) if the image tool is absent.
 command -v mke2fs >/dev/null || {
@@ -112,7 +230,16 @@ KB="$(du -sk "$STAGE" | cut -f1)"
 BLOCKS=$(( KB + KB / 10 + 8192 ))
 # No journal (`-O ^has_journal`): the root mounts read-only, so the journal is
 # pure overhead and its ~4 MiB+ reservation can overflow a tight image.
-mke2fs -q -t ext4 -O ^has_journal -d "$STAGE" -b 1024 -F "$OUT/rootfs.img" "$BLOCKS"
+#
+# Reproducibility: mke2fs otherwise randomizes the filesystem UUID and the
+# directory hash seed and stamps the current time on every inode. Pin all three
+# (fixed UUID + hash seed; SOURCE_DATE_EPOCH for inode/superblock times) so the
+# image is byte-identical across builds.
+export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
+ROOTFS_UUID=00112233-4455-6677-8899-aabbccddeeff
+mke2fs -q -t ext4 -O ^has_journal \
+  -U "$ROOTFS_UUID" -E hash_seed="$ROOTFS_UUID" \
+  -d "$STAGE" -b 1024 -F "$OUT/rootfs.img" "$BLOCKS"
 
 # Assert the output exists so a silent mke2fs failure surfaces here rather than
 # downstream as a missing materialize output.
@@ -121,4 +248,4 @@ mke2fs -q -t ext4 -O ^has_journal -d "$STAGE" -b 1024 -F "$OUT/rootfs.img" "$BLO
   ls -la "$OUT" >&2 || true
   exit 1
 }
-echo "built rootfs.img: $(wc -c < "$OUT/rootfs.img") bytes"
+echo "built rootfs.img: $(wc -c < "$OUT/rootfs.img") bytes (staged tree ${KB} KiB)"

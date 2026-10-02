@@ -9,14 +9,32 @@ config-as-code declarations for an ecosystem of Linux software packages (like ni
 descriptions are fairly precise, describing both the dependencies of the software (in terms of
 other packages) as well as the exact steps to build it and what outputs are collected from a build.
 
-You are running in an environment with access to a few specialized tools to help you accomplish your
-goals. These tools are all subcommands of the `min` command.
- 
- * `min add <package name>` - Installs the package with the given name into your environment, letting you
-    use the CLI tools it encapsulates. If you aren't sure of the right package name, you can use
-    `min search <term>` to help find it.
- * `min check [--packages] [--profiles] [--harnesses] [--fix] [<name 1>[, <name N>]]` - Runs linters and static checks on the packages/profiles/harnesses with the given names, or all if names are not specified. If none of --profiles, --harnesses, and --packages are set, then checks are run for all three object kinds.
- * `min patched-build <package name>` - Runs the build for the named package. Unlike a full build, a patched build will wire dependencies to the most recent available version of the package with the same name, so you won't have long rebuilds when editing packages which are circularly dependent on a lot of other packages.
+You are running in an environment with access to the in-sandbox `min` helper. Through it you can
+search for and install packages, record a package as a dependency, run tasks declared in
+`minimal.toml`, lint this repo's declarations, and build a package.
+
+**Do not run a `min` command from memory, and do not copy command spellings out of this file.**
+The helper is installed by the Minimal daemon, so its subcommands track the daemon's version and
+have changed between releases: verbs have been added, renamed, and removed. Resolve them at the
+point of use, from these two sources:
+
+ * **Run `min` with no subcommand** for the authoritative list of what this session accepts.
+ * **Read <https://minimal.dev/docs/reference/sandbox-operations>** for what each command does and
+   what its flags mean.
+
+Both win over anything written here or remembered from another machine. If you have no shell in
+your context and cannot check, say which command you would resolve rather than emitting a
+plausible-looking one that may not exist.
+
+Two behaviours to know before you start, because neither is guessable:
+
+ * **Installing a package and recording it as a dependency are different actions.** A bare install
+   need not persist anything, and what it records differs between a session and a task sandbox.
+   Check the reference for the flag that writes the package into `build_deps` / `runtime_deps`;
+   a package you installed ad hoc works for you and fails for everyone else.
+ * **Tasks marked `interactive = true`** (such as `shell` and `claude`) can only be launched from
+   the host. Running one from inside a session fails with "cannot run interactive tasks from
+   within an environment". That is a structural limit, not a misconfiguration; do not work around it.
 
 
 
@@ -27,19 +45,19 @@ All objects are described using [Nickel](https://nickel-lang.org/) syntax, and o
 Specifically:
 
  * Packages: `packages/<package name>/build.ncl`
- * Harnesses: `harnesses/<harness name>/harness.ncl`
+ * Stacks: `stacks/<stack name>/stack.ncl`
 
-The repo-level config lives at `minimal.toml` (declares the minimum `stdlib` version and interactive `tasks` like `min run shell` / `min run claude`).
+The repo-level config lives at `minimal.toml` (declares the minimum `stdlib` version and interactive `tasks` such as `shell` and `claude`).
 
-### Harnesses
+### Stacks
 
-A harness describes a reusable build environment for a class of project (e.g. a Go module, a Rust crate, a CMake project). Each harness declares the packages it needs, a default build command, and a set of project-detection rules — `minimal init` uses these rules to auto-select the right harness for a source tree.
+A stack describes a reusable build environment for a class of project (e.g. a Go module, a Rust crate, a CMake project). Each stack declares the packages it needs, a default build command, and a set of project-detection rules — `minimal init` uses these rules to auto-select the right stack for a source tree.
 
-Example (`harnesses/go/harness.ncl`):
+Example (`stacks/go/stack.ncl`):
 
 ```ncl
-let { harness, .. } = import "minimal.ncl" in
-harness {
+let { stack, .. } = import "minimal.ncl" in
+stack {
   name = "go",
   build_packages = ["go", "binutils", "linux_headers"],
   build_cmd = "go build",
@@ -49,7 +67,10 @@ harness {
 }
 ```
 
-Current harnesses cover: bun, cmake, deno, go, gradle, make, maven, meson, npm, pip, pnpm, pulumi-go, pulumi-nodejs, rust, shell, uv, zig.
+Stacks were previously called "harnesses". The stdlib still exports `harness` as an alias for `stack`, but new
+stacks should use `stack` and live at `stacks/<name>/stack.ncl`.
+
+Current stacks cover: aeneas, bun, cabal, cmake, deno, go, gradle, make, maven, meson, npm, ocaml, odin, pip, pnpm, pulumi-go, pulumi-nodejs, rust, shell, stack, uv, zig.
 
 
 
@@ -363,11 +384,11 @@ the correct approach is to create it — never install it on the host system.
 
 ### Step 0: Confirm it's missing
 
-```bash
-min search <name>
-```
+Search the registry for the name (the helper's search command; run bare `min` for its current
+spelling). It prints similarly-named packages.
 
-Which will print similarly-named packages. Check alternate names: `python` not `python3`, `node` not `nodejs`, `jdk` not `java`.
+Check alternate names before concluding a package is absent: `python` not `python3`, `node` not
+`nodejs`, `jdk` not `java`.
 
 
 ### Step 1: Create the package directory
@@ -567,6 +588,11 @@ let bash = import "../bash/build.ncl" in
 
 The build script must install everything to `$OUTPUT_DIR`.
 
+**Every package must be reproducible** — layer the determinism flags from
+[Reproducibility (required)](#reproducibility-required) below (which routes to
+<https://minimal.dev/docs/reference/reproducibility>) onto whichever pattern you use. The
+patterns below show the minimal shape; they are not complete without those flags.
+
 #### Autotools pattern
 
 ```bash
@@ -630,21 +656,74 @@ mkdir -p $OUTPUT_DIR/usr/bin
 cp target/release/my-tool $OUTPUT_DIR/usr/bin/
 ```
 
+#### Node pattern
+
+Node CLIs follow three rules. `.github/workflows/node-runtime-guard.yml` enforces all of them, because breaking them blends two npm installs into one that cannot load (#665, #751):
+
+- **Use `node-lts`, not `node`**, for `build_deps` and `runtime_deps`; the guard checks both. With one flavor, every package ships the same `/usr/bin/node`. `node` (Current) is there for users to opt into; packages don't use it. Use `node-lts` for `test_deps` too. That part is convention only: `minimal dump` doesn't include tests, so the guard can't see them.
+- **At runtime, depend on the interpreter only:** `subsetOf node-lts ["node"]`. Never take the whole package, which would bring its npm, npx and `usr/lib/node_modules` into the user's session.
+- **Install into `usr/libexec/<pkg>`, never `usr/lib/node_modules`.** That tree belongs to the runtime's own npm. Expose each bin as a relative symlink, and name the private tree in `outputs`. A package that builds with Node may not use a broad glob like `usr/**` that would also capture `usr/lib/node_modules`.
+
+```bash
+#!/bin/sh
+set -eu
+
+npm install -g --prefix="$OUTPUT_DIR/usr/libexec/my-tool" "my-tool@$MINIMAL_ARG_VERSION"
+
+mkdir -p "$OUTPUT_DIR/usr/bin"
+for _tool in my-tool; do  # the bins package.json declares
+  ln -s "../libexec/my-tool/bin/$_tool" "$OUTPUT_DIR/usr/bin/$_tool"
+  test -e "$OUTPUT_DIR/usr/bin/$_tool"  # fail on a renamed upstream bin
+done
+```
+
+```nickel
+  build_deps = [{ file = "build.sh" } | Local, base, node-lts],
+  runtime_deps = [coreutils, subsetOf node-lts ["node"]],  # coreutils: `#!/usr/bin/env node`
+  outputs = {
+    my-tool = { glob = "usr/bin/my-tool" } | OutputBin,
+    libexec = { glob = "usr/libexec/my-tool/**", allow_executable = true } | OutputData,
+  },
+```
+
+`pkgmgr import npm <name>` generates this layout (using a committed lockfile and `npm ci`); see `packages/vlt`.
+
+
+### Reproducibility (required)
+
+**Every package in this repo must build byte-reproducibly.** The per-toolchain determinism
+flags — C/C++, Go, Rust, the Linux kernel, and builds that stamp their own wall-clock time —
+are documented once, publicly, at:
+
+**<https://minimal.dev/docs/reference/reproducibility>**
+
+Read that page rather than a copy of it here. It also covers what the build sandbox already
+sets for you (`SOURCE_DATE_EPOCH=0`, `PYTHONHASHSEED=0`, both of which the checker **rejects**
+if you set them again), and how to verify: build twice, diff the two `$OUTPUT_DIR` trees.
+
+Two things specific to this repo, which the public page does not carry:
+
+- **Rust in this sandbox also needs `-C linker=gcc`.** The build sandbox has no `cc` symlink,
+  so the documented `RUSTFLAGS` must be extended, not used verbatim:
+  `RUSTFLAGS="-C linker=gcc --remap-path-prefix=$(pwd)=/builddir --remap-path-prefix=$HOME/.cargo=/cargo"`.
+  See [Rust build errors, `cc` not found](#rust-build-errors-cc-not-found) in the FAQ.
+- **A worked example of the wall-clock case lives here:** `packages/nspr/build.sh` overrides the
+  make variables its version header is generated from (`SH_DATE` from `$SOURCE_DATE_EPOCH`,
+  `SH_NOW=` to omit the build time) rather than re-exporting `SOURCE_DATE_EPOCH`.
+
 
 ### Step 4: Validate
 
-```bash
-min check --packages <name>
-```
-
-This validates that the Nickel spec parses correctly and conforms to the schema.
+Run the config check against your package. This validates that the Nickel spec parses correctly
+and conforms to the schema.
 
 
 ### Step 5: Build
 
-```bash
-min patched-build <name>
-```
+Build the package on its own. Prefer the patched build: it wires dependencies to the most recent
+available build of each package, so editing a package deep in the graph does not trigger a long
+rebuild chain. The tradeoff is that those dependency builds come from cache and can be
+stale — run a full build when the result has to reflect a dependency's current sources.
 
 If the build fails:
 - Check that all build dependencies are in `build_deps`
@@ -652,19 +731,15 @@ If the build fails:
 - Check that `build.sh` installs to `$OUTPUT_DIR` (not `/usr/` directly)
 - Check the source URL and SHA256
 - Check that output globs match what `build.sh` actually installs
-- And keep iterating running the `patched-build` and `check` commands.
+- And keep iterating between the build and the check.
 
 
 ### Step 6: Validate again
 
-```bash
-min check --packages <name>
-```
-
 Some validation checkers run on the compiled output, and show up as skipped when a package hasn't been built yet.
 
-Run `min check` again to make sure these checkers are run, and iterate by fixing issues, running `patched-build`, and then
-running `min check` until all addressed.
+Run the check again after a successful build so those checkers actually run, and iterate by fixing
+issues, rebuilding, and re-checking until all are addressed.
 
 
 
@@ -672,20 +747,17 @@ running `min check` until all addressed.
 
 ### error: other: resolving dep '<package name>' by name: not found
 
-When using `min patched-build`, you can get an error if a package is not available locally, that looks
-like this:
+A patched build can fail if one of its dependencies is not available locally, like this:
 
 ```text
 error: other: resolving dep '<package>' by name: not found
 ```
 
-To fix this, you need to make the package available locally, typically by forcing it to be fetched:
+To fix it, make that package available locally by installing it, which forces a fetch.
 
-`min add <package>`
-
-If the package thats not found is one that you are presently trying to package, `min add` will fail
-because it does not yet exist upstream. Instead, you should get it building with `min patched-build` first,
-so the completed build populates the package locally, and only then move on to packages that depend on it.
+If the missing package is one you are presently writing, installing it will fail because it does
+not exist upstream yet. Build that package first, so the completed build populates it locally, and
+only then move on to the packages that depend on it.
 
 ### Rust build errors, `cc` not found
 

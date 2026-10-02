@@ -26,14 +26,14 @@ let attr = import "../attr/build.ncl" in
 let libcap = import "../libcap/build.ncl" in
 let gmp = import "../gmp/build.ncl" in
 
-let version = "9.11" in
+let version = "9.12" in
 {
   name = "coreutils",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "gs://minimal-staging-archives/coreutils-%{version}.tar.xz",
-      sha256 = "394024eda0a5955217ceda9cd1201e65dc8fa3aa29c2951135a49521d57c3cc3"
+      sha256 = "a480198559733e9b3da999e90543ac6f888a2caa544d8d664c5a1f17e528e210"
     } | Source,
     # base
     bash-bootstrap,
@@ -130,14 +130,22 @@ let version = "9.11" in
         match {
           { arch = 'Amd64, .. } =>
             {
-              url = "gs://minimal-staging-archives/prebuilts/coreutils/00a9b94dccfb74f487297cfbb7e89aeb26c615fac4ea2f46ce7b18e3bcdfabe0.tar.zst",
-              sha256 = "f9fb6b4833ee57860479f1fa653b1894ef56886c652cd646b0d5fd6a50ddbc8b",
+              # BEDROCK ROOT: this artifact is built by the hex0-rooted bootstrap ladder and
+              # replaces the previous prebuilt in this slot. Provenance, seals, and evidence:
+              # gominimal/minimermetic#16. Applied by minimermetic's
+              # bin/queue/update-bedrock-roots.py from its bedrock-roots-manifest.txt.
+              url = "gs://minimal-staging-archives/prebuilts/bedrock/sha256/210ec67122a89479fc67dbc6dc744287a0f42cfdee6b888f39a7f2a72e701de5/stage0-coreutils-amd-x86_64.tar.zst",
+              sha256 = "210ec67122a89479fc67dbc6dc744287a0f42cfdee6b888f39a7f2a72e701de5",
               extract = true,
             } | Source,
           { arch = 'Arm64, .. } =>
             {
-              url = "gs://minimal-staging-archives/prebuilts/coreutils/arm64-linux-gnu/coreutils_9.10_arm64-linux-gnu_prebuilt.tar.zst",
-              sha256 = "cb080f02328be487d38ae8fa395b5d106a0a1b54fead0176bffea506328893ac",
+              # BEDROCK ROOT: this artifact is built by the hex0-rooted bootstrap ladder and
+              # replaces the previous prebuilt in this slot. Provenance, seals, and evidence:
+              # gominimal/minimermetic#16. Applied by minimermetic's
+              # bin/queue/update-bedrock-roots.py from its bedrock-roots-manifest.txt.
+              url = "gs://minimal-staging-archives/prebuilts/bedrock/sha256/ac7849c5b2a892c635580d543dd5cd7417d313e7ddbafde19d6e0c17d84467ba/stage0-coreutils-bedrock-aarch64.tar.zst",
+              sha256 = "ac7849c5b2a892c635580d543dd5cd7417d313e7ddbafde19d6e0c17d84467ba",
               extract = true,
             } | Source,
         } target,

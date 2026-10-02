@@ -1,8 +1,8 @@
-let { standaloneTest, Attrs, BuildSpec, Local, Needs, OutputBin, OutputData, Source, Test, .. } = import "minimal.ncl" in
+let { standaloneTest, subsetOf, Attrs, BuildSpec, Local, Needs, OutputBin, OutputData, Source, Test, .. } = import "minimal.ncl" in
 let base = import "../base/build.ncl" in
 let curl = import "../curl/build.ncl" in
 let gh = import "../gh/build.ncl" in
-let node = import "../node/build.ncl" in
+let node-lts = import "../node-lts/build.ncl" in
 
 # chromium-headless-shell-bin provides the headless-shell binary (which
 # Puppeteer drives in mermaid's "headless: shell" mode) and its full
@@ -12,24 +12,24 @@ let node = import "../node/build.ncl" in
 # full headed chromium browser.
 let chromium-headless-shell-bin = import "../chromium-headless-shell-bin/build.ncl" in
 
-let version = "11.12.0" in
+let version = "11.17.0" in
 {
   name = "mermaid-cli",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "https://github.com/mermaid-js/mermaid-cli/archive/refs/tags/%{version}.tar.gz",
-      sha256 = "1911d5f96546b7278cb734b6f4b388b679bc0b36d6c37ba8de1a032d5a9ae6af",
+      sha256 = "b5213dd373f09d0bfbc1ae839114246edecfe4e78248d50577f330af266d18ca",
     } | Source,
     base,
     curl,
     gh,
-    node,
+    node-lts,
   ],
   runtime_deps = [
     base,
     chromium-headless-shell-bin,
-    node,
+    subsetOf node-lts ["node"],
   ],
   needs =
     {
@@ -44,7 +44,7 @@ let version = "11.12.0" in
 
   outputs = {
     mmdc = { glob = "usr/bin/mmdc" } | OutputBin,
-    libexec = { glob = "usr/lib/node_modules/**", allow_executable = true } | OutputData,
+    libexec = { glob = "usr/libexec/mermaid-cli/**", allow_executable = true } | OutputData,
     config = { glob = "usr/share/mermaid-cli/*.json" } | OutputData,
   },
 
@@ -67,7 +67,7 @@ let version = "11.12.0" in
         test_deps = [base],
         cmds = [
           ["/bin/bash", "-c", "test -x /bin/mmdc"],
-          ["/bin/bash", "-c", "test -f /usr/lib/node_modules/@mermaid-js/mermaid-cli/src/cli.js"],
+          ["/bin/bash", "-c", "test -f /usr/libexec/mermaid-cli/lib/node_modules/@mermaid-js/mermaid-cli/src/cli.js"],
           ["/bin/bash", "-c", "test -x /bin/chromium-headless-shell"],
           ["/bin/bash", "-c", "/bin/mmdc --help | grep -q 'mermaid'"],
         ],

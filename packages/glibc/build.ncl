@@ -47,7 +47,7 @@ let all_outputs = {
 }
 in
 
-let version = "2.42" in
+let version = "2.44" in
 {
   name = "glibc",
   build_deps = [
@@ -55,7 +55,7 @@ let version = "2.42" in
     {
       # Downloadable from: https://ftp.gnu.org/gnu/glibc/
       url = "gs://minimal-staging-archives/glibc-%{version}.tar.xz",
-      sha256 = "d1775e32e4628e64ef930f435b67bb63af7599acb6be2b335b9f19f16509f17f"
+      sha256 = "37f600f2bef3c5e8300147059568b2a2e40a7ad6ccc65ce942556d49429cc667"
     } | Source,
     # base
     bash,
@@ -108,14 +108,22 @@ let version = "2.42" in
         match {
           { arch = 'Amd64, .. } =>
             {
-              url = "gs://minimal-staging-archives/prebuilts/glibc/0b3158f86607d703484cdc2b989850085ee57cd9d774f00ff6bf5b83c9fb20db.tar.zst",
-              sha256 = "0a8fe9137ed3e906bae9e1f922e80d6b198bd2d29d390f1283f7d32e0f921580",
+              # BEDROCK ROOT: this artifact is built by the hex0-rooted bootstrap ladder and
+              # replaces the previous prebuilt in this slot. Provenance, seals, and evidence:
+              # gominimal/minimermetic#16. Applied by minimermetic's
+              # bin/queue/update-bedrock-roots.py from its bedrock-roots-manifest.txt.
+              url = "gs://minimal-staging-archives/prebuilts/bedrock/sha256/d0850b659687f160368bf87a57d02cfbbe0f1a5fe6ab4b623ca8296b5659126f/glibc-bedrock-2.42-2.42.tar.zst",
+              sha256 = "d0850b659687f160368bf87a57d02cfbbe0f1a5fe6ab4b623ca8296b5659126f",
               extract = true,
             } | Source,
           { arch = 'Arm64, .. } =>
             {
-              url = "gs://minimal-staging-archives/prebuilts/glibc/arm64-linux-gnu/glibc_2.40_arm64-linux-gnu_prebuilt.tar.zst",
-              sha256 = "681bab31f2aac4d0379ca03014db608175366dcd8eeecd82ce385fd7b6adf507",
+              # BEDROCK ROOT: this artifact is built by the hex0-rooted bootstrap ladder and
+              # replaces the previous prebuilt in this slot. Provenance, seals, and evidence:
+              # gominimal/minimermetic#16. Applied by minimermetic's
+              # bin/queue/update-bedrock-roots.py from its bedrock-roots-manifest.txt.
+              url = "gs://minimal-staging-archives/prebuilts/bedrock/sha256/a1d40cb10e77670c3c1b00bf2ce28f45775146dfe0397d4c4c5468e955bb1cdc/stage0-glibc-2.42-aarch64.tar.zst",
+              sha256 = "a1d40cb10e77670c3c1b00bf2ce28f45775146dfe0397d4c4c5468e955bb1cdc",
               extract = true,
             } | Source,
         } target,

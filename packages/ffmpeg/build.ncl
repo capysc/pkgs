@@ -21,14 +21,14 @@ let openssl = import "../openssl/build.ncl" in
 let xz = import "../xz/build.ncl" in
 let zlib = import "../zlib/build.ncl" in
 
-let version = "8.1.1" in
+let version = "9.0.1" in
 {
   name = "ffmpeg",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "https://ffmpeg.org/releases/ffmpeg-%{version}.tar.xz",
-      sha256 = "b6863adde98898f42602017462871b5f6333e65aec803fdd7a6308639c52edf3",
+      sha256 = "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635",
       extract = true,
       strip_prefix = "ffmpeg-%{version}",
     } | Source,

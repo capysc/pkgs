@@ -13,13 +13,13 @@ let linux_headers = import "../linux_headers/build.ncl" in
 let sed = import "../sed/build.ncl" in
 let tar = import "../tar/build.ncl" in
 
-let version = "4.10.0" in
+let version = "4.11.0" in
 {
   name = "findutils",
   build_deps = [
     {
       url = "gs://minimal-staging-archives/findutils-%{version}.tar.xz",
-      sha256 = "1387e0b67ff247d2abde998f90dfbf70c1491391a59ddfecb8ae698789f0a4f5",
+      sha256 = "bfd19cb06cc71f3352d567e90284d8cdac02ac89774bbeadf0b533b0c11432fd",
       extract = true,
     } | Source,
     { file = "build.sh" } | Local,
@@ -62,6 +62,10 @@ let version = "4.10.0" in
   attrs =
     {
       upstream_version = version,
+      source_provenance = {
+        category = 'GnuProject,
+        name = "findutils",
+      },
       license_spdx = "GPL-3.0-only",
       repology_project = "findutils",
     } | Attrs,
@@ -74,14 +78,22 @@ let version = "4.10.0" in
         match {
           { arch = 'Amd64, .. } =>
             {
-              url = "gs://minimal-staging-archives/prebuilts/findutils/6d2d376ab982c9fe5bc932457922e40984208f49b5d3419b00774f6f1f57df89.tar.zst",
-              sha256 = "94a015e63faf0de0d4dd9d1d615c07a38e1baa2d0f5b7515b83abe0292ccac7e",
+              # BEDROCK ROOT: this artifact is built by the hex0-rooted bootstrap ladder and
+              # replaces the previous prebuilt in this slot. Provenance, seals, and evidence:
+              # gominimal/minimermetic#16. Applied by minimermetic's
+              # bin/queue/update-bedrock-roots.py from its bedrock-roots-manifest.txt.
+              url = "gs://minimal-staging-archives/prebuilts/bedrock/sha256/f6f35466213d8c0432614a46b4c2827e1ddf531ea316ded0b44ec8f2a14ab6ce/stage0-findutils-amd-x86_64.tar.zst",
+              sha256 = "f6f35466213d8c0432614a46b4c2827e1ddf531ea316ded0b44ec8f2a14ab6ce",
               extract = true,
             } | Source,
           { arch = 'Arm64, .. } =>
             {
-              url = "gs://minimal-staging-archives/prebuilts/findutils/arm64-linux-gnu/findutils_4.10.0_arm64-linux-gnu_prebuilt.tar.zst",
-              sha256 = "2cf3c2126b701aa268489bfc8063ac3698d6d2792706d38852eff46326a0d86e",
+              # BEDROCK ROOT: this artifact is built by the hex0-rooted bootstrap ladder and
+              # replaces the previous prebuilt in this slot. Provenance, seals, and evidence:
+              # gominimal/minimermetic#16. Applied by minimermetic's
+              # bin/queue/update-bedrock-roots.py from its bedrock-roots-manifest.txt.
+              url = "gs://minimal-staging-archives/prebuilts/bedrock/sha256/0e5ca2adcedc9c949859438103cae0635ab7714363626fd6e4e06b58a59bc0d8/stage0-findutils-arm-aarch64.tar.zst",
+              sha256 = "0e5ca2adcedc9c949859438103cae0635ab7714363626fd6e4e06b58a59bc0d8",
               extract = true,
             } | Source,
         } target,

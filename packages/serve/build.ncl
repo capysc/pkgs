@@ -1,0 +1,34 @@
+# Imported from Wolfi `serve` by `pkgmgr import-wolfi` (node build),
+# with outputs refined from a verified `minimal package` build.
+let { subsetOf, Attrs, BuildSpec, Local, Needs, OutputBin, OutputData, .. } = import "minimal.ncl" in
+let base = import "../base/build.ncl" in
+let node-lts = import "../node-lts/build.ncl" in
+let coreutils = import "../coreutils/build.ncl" in
+let version = "14.2.6" in
+{
+  name = "serve",
+  build_deps = [
+    { file = "build.sh" } | Local,
+    base,
+    node-lts,
+  ],
+  runtime_deps = [coreutils, subsetOf node-lts ["node"]],
+  needs =
+    {
+      dns = {},
+      internet = {},
+    } | Needs,
+  cmd = "./build.sh",
+  build_args = {
+    include version,
+  },
+  outputs = {
+    serve = { glob = "usr/bin/serve" } | OutputBin,
+    libexec = { glob = "usr/libexec/serve/**", allow_executable = true } | OutputData,
+  },
+  attrs =
+    {
+      upstream_version = version,
+      license_spdx = "MIT",
+    } | Attrs,
+} | BuildSpec

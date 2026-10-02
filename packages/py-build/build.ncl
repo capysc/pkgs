@@ -5,14 +5,14 @@ let python = import "../python/build.ncl" in
 let py-packaging = import "../py-packaging/build.ncl" in
 let pyproject-hooks = import "../pyproject-hooks/build.ncl" in
 
-let version = "1.3.0" in
+let version = "1.6.1" in
 {
   name = "py-build",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "https://files.pythonhosted.org/packages/source/b/build/build-%{version}.tar.gz",
-      sha256 = "698edd0ea270bde950f53aed21f3a0135672206f3911e0176261a31e0e07b397",
+      sha256 = "51cc11666391ab6f092070437ac747002ff46f3e4113a3622177ee6b488bfc53",
       extract = true,
       strip_prefix = "build-%{version}",
     } | Source,

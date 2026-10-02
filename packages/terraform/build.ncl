@@ -4,14 +4,14 @@ let go = import "../go/build.ncl" in
 let toolchain = import "../toolchain/build.ncl" in
 let glibc = import "../glibc/build.ncl" in
 
-let version = "1.14.5" in
+let version = "1.16.3" in
 {
   name = "terraform",
   build_deps = [
     { file = "build.sh" } | Local,
     {
       url = "gs://minimal-staging-archives/hashicorp/terraform/v%{version}.tar.gz",
-      sha256 = "ac3faee7b1d301a4d12fe6b7f33b1ba57a183e080a2442f6f1466a30f257ba45",
+      sha256 = "3522226b12fcd7a6af0ae65ec8a5a9bc6cea348043a1d60a0361945f03316470",
       extract = true,
       strip_prefix = "terraform-%{version}",
     } | Source,

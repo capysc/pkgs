@@ -1,19 +1,19 @@
-let { Attrs, BuildSpec, Local, Needs, OutputBin, OutputData, .. } = import "minimal.ncl" in
+let { subsetOf, Attrs, BuildSpec, Local, Needs, OutputBin, OutputData, .. } = import "minimal.ncl" in
 let base = import "../base/build.ncl" in
 let coreutils = import "../coreutils/build.ncl" in
-let node = import "../node/build.ncl" in
+let node-lts = import "../node-lts/build.ncl" in
 
-let version = "4.3.3" in
+let version = "5.3.0" in
 {
   name = "typescript-language-server",
   build_deps = [
     { file = "build.sh" } | Local,
     base,
-    node,
+    node-lts,
   ],
   runtime_deps = [
     coreutils,
-    node,
+    subsetOf node-lts ["node"],
   ],
   needs =
     {
@@ -30,7 +30,7 @@ let version = "4.3.3" in
     typescript-language-server = { glob = "usr/bin/typescript-language-server" } | OutputBin,
     tsserver = { glob = "usr/bin/tsserver" } | OutputBin,
     tsc = { glob = "usr/bin/tsc" } | OutputBin,
-    libexec = { glob = "usr/lib/node_modules/**" } | OutputData,
+    libexec = { glob = "usr/libexec/typescript-language-server/**", allow_executable = true } | OutputData,
   },
 
   attrs =

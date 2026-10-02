@@ -1,19 +1,19 @@
-let { Attrs, BuildSpec, Local, Needs, OutputBin, OutputData, .. } = import "minimal.ncl" in
+let { subsetOf, Attrs, BuildSpec, Local, Needs, OutputBin, OutputData, .. } = import "minimal.ncl" in
 let base = import "../base/build.ncl" in
 let coreutils = import "../coreutils/build.ncl" in
-let node = import "../node/build.ncl" in
+let node-lts = import "../node-lts/build.ncl" in
 
-let version = "1.1.398" in
+let version = "1.1.413" in
 {
   name = "pyright",
   build_deps = [
     { file = "build.sh" } | Local,
     base,
-    node,
+    node-lts,
   ],
   runtime_deps = [
     coreutils,
-    node,
+    subsetOf node-lts ["node"],
   ],
   needs =
     {
@@ -29,7 +29,7 @@ let version = "1.1.398" in
   outputs = {
     pyright = { glob = "usr/bin/pyright" } | OutputBin,
     pyright-langserver = { glob = "usr/bin/pyright-langserver" } | OutputBin,
-    libexec = { glob = "usr/lib/node_modules/**" } | OutputData,
+    libexec = { glob = "usr/libexec/pyright/**", allow_executable = true } | OutputData,
   },
 
   attrs =
